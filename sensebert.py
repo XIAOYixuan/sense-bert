@@ -1,7 +1,6 @@
 import os
 from collections import namedtuple
 import tensorflow as tf
-
 from tokenization import FullTokenizer
 
 _SenseBertGraph = namedtuple(
@@ -44,6 +43,7 @@ def _load_model(name_or_path, session=None):
     inputs, outputs = ({key: session.graph.get_tensor_by_name(info.name) for key, info in puts.items()}
                        for puts in (serve_def.inputs, serve_def.outputs))
 
+
     return _SenseBertGraph(
         input_ids=inputs['input_ids'],
         input_mask=inputs['input_mask'],
@@ -60,7 +60,7 @@ class SenseBert:
         self.model = _load_model(name_or_path, session=self.session)
         self.tokenizer = load_tokenizer(name_or_path)
 
-    def tokenize(self, inputs):
+    def tokenize(self, inputs, tgt_position):
         """
         Gets a string or a list of strings, and returns a tuple (input_ids, input_mask) to use as inputs for SenseBERT.
         Both share the same shape: [batch_size, sequence_length] where sequence_length is the maximal sequence length.
@@ -70,9 +70,14 @@ class SenseBert:
 
         # tokenizing all inputs
         all_token_ids = []
-        for inp in inputs:
-            tokens = [self.tokenizer.start_sym] + self.tokenizer.tokenize(inp)[0] + [self.tokenizer.end_sym]
+        all_tgt_positions = []
+        for inp, tgt in zip(inputs, tgt_position):
+            tokens, _, tgt_tokens = self.tokenizer.tokenize(inp, tgt)
+            tokens = [self.tokenizer.start_sym] + tokens + [self.tokenizer.end_sym]
             assert len(tokens) <= self.max_seq_length
+            all_tgt_positions.append(tgt_tokens)
+            st, ed = tgt_tokens
+            print('---', tokens[st:ed])
             all_token_ids.append(self.tokenizer.convert_tokens_to_ids(tokens))
 
         # decide the maximum sequence length and pad accordingly
@@ -84,7 +89,7 @@ class SenseBert:
             input_ids.append(token_ids + pad_sym_id * to_pad)
             input_mask.append([1] * len(token_ids) + [0] * to_pad)
 
-        return input_ids, input_mask
+        return input_ids, input_mask, all_tgt_positions
 
     def run(self, input_ids, input_mask):
         return self.session.run(

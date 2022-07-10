@@ -15,6 +15,8 @@ import numpy as np
 from nltk.tokenize import WhitespaceTokenizer
 from collections import namedtuple
 
+from wic_util.data_loader import *
+
 UnkToken = namedtuple('UnkToken', ('value', 'length'))
 
 def validate_case_matches_checkpoint(do_lower_case, init_checkpoint):
@@ -204,12 +206,15 @@ class FullTokenizer:
         self.end_sym = "[SEP]"
         self.pad_sym = "[PAD]"
 
-    def tokenize(self, text):
+
+    def tokenize(self, text, tgt_position=None):
         split_tokens = []
         split_indices = []
+        tgt_st, tgt_ed = None, None
         whitespace_tokens, original_indices = self.basic_tokenizer.tokenize(text)
         for token, index in zip(whitespace_tokens, original_indices):
             cur_s = index[0]
+            cur_st = len(split_tokens)
             for sub_token in self.wordpiece_tokenizer.tokenize(token):
                 if isinstance(sub_token, UnkToken):
                     split_tokens.append(sub_token.value)
@@ -221,9 +226,11 @@ class FullTokenizer:
                         token_length -= 2
                 split_indices.append((cur_s, cur_s + token_length))
                 cur_s += token_length
+            if index == tgt_position:
+                tgt_st = cur_st
+                tgt_ed = len(split_tokens)
             assert cur_s == index[1]
-
-        return split_tokens, split_indices
+        return split_tokens, split_indices, (tgt_st+1, tgt_ed+1)
 
     def convert_tokens_to_ids(self, tokens):
         return convert_by_vocab(self.vocab, tokens)
@@ -376,6 +383,7 @@ class WordpieceTokenizer(object):
         if self.wrap_unk_token:
             unk = UnkToken(value=self.unk_token, length=len(token))
         return unk
+    
 
     def tokenize(self, text):
         """Tokenizes a piece of text into its word pieces.
@@ -394,7 +402,6 @@ class WordpieceTokenizer(object):
         Returns:
           A list of wordpiece tokens.
         """
-
         text = convert_to_unicode(text)
 
         output_tokens = []
